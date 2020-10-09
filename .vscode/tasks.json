@@ -1,0 +1,53 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "test",
+            "options": {
+                "cwd": "test"
+            },
+            "command": "dotnet",
+            "type": "shell",
+            "args": [
+                "test"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "build",
+            "options": {
+                "cwd": "app"
+            },
+            "command": "dotnet",
+            "type": "shell",
+            "args": [
+                "build",
+                "/property:GenerateFullPaths=true",
+                "/consoleloggerparameters:NoSummary"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "run",
+            "options": {
+                "cwd": "app"
+            },
+            "command": "dotnet",
+            "type": "shell",
+            "args": [
+                "run",
+                "$TELEGRAM_TOKEN",
+                "$TELEGRAM_USER_ID"
+            ],
+            "problemMatcher": []
+        }
+    ]
+}
