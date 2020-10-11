@@ -10,9 +10,6 @@ type State =
     { containers: ContainerId Set }
     static member Empty = { containers = Set.empty }
 
-let inline (!>) (x: ^a): ^b =
-    ((^a or ^b): (static member op_Implicit: ^a -> ^b) x)
-
 module Service =
     let parseStatus =
         function
@@ -51,12 +48,10 @@ module Docker =
                 let toNames xs = Seq.reduce (sprintf "%s - %s") xs
                 containers
                 |> Seq.map (fun x ->
-                    ContainerId x.ID,
-                    toNames x.Names,
-                    Service.parseStatus x.State
-                    |> function
-                    | Ok x -> x
-                    | Error e -> failwith e)
+                    let status =
+                        Service.parseStatus x.State |> Result.unwrap
+
+                    ContainerId x.ID, toNames x.Names, status)
                 |> Seq.toList
 
             use client =
