@@ -3,6 +3,7 @@ module Application
 type Status =
     | Exited
     | Running
+    | Created
 
 type ContainerId = ContainerId of string
 
@@ -15,13 +16,20 @@ module Service =
         function
         | "exited" -> Ok Exited
         | "running" -> Ok Running
+        | "created" -> Ok Created
         | s -> Error <| sprintf "Can't parse '%s'" s
 
     let private getUpdateMessages state containers =
+        let isExited =
+            function
+            | Exited -> true
+            | Running
+            | Created -> false
+
         let messages =
             containers
-            |> List.filter (fun (id, _, s) -> s = Exited && Set.contains id state.containers)
-            |> List.map (fun (_, name, _) -> sprintf "Service <%O> is killed" name)
+            |> List.filter (fun (id, _, s) -> isExited s && Set.contains id state.containers)
+            |> List.map (fun (_, name, _) -> sprintf "Service <%s> is killed" name)
 
         { state with
               containers =
