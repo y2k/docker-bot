@@ -23,6 +23,19 @@ module TestFramework =
         |> callback
 
 [<Fact>]
+let ``same call should not trigger`` () =
+    TestFramework.run (fun env ->
+        env.run ()
+        Assert.Equal(box [], !env.messages)
+
+        env.setContainers [ ContainerId "1", "service1", Running
+                            ContainerId "2", "service2", Exited
+                            ContainerId "3", "service3", Created ]
+        for _ in 1 .. 3 do
+            env.run ()
+            Assert.Equal(box [], !env.messages))
+
+[<Fact>]
 let ``first start test`` () =
     TestFramework.run (fun env ->
         env.run ()

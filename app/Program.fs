@@ -34,7 +34,7 @@ module Service =
         { state with
               containers =
                   containers
-                  |> List.map (fun (id, _, _) -> id)
+                  |> List.choose (fun (id, _, status) -> if isExited status then None else Some id)
                   |> Set.ofList },
         messages
 
