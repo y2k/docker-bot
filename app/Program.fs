@@ -29,7 +29,7 @@ module Service =
         let messages =
             containers
             |> List.filter (fun (id, _, s) -> isExited s && Set.contains id state.containers)
-            |> List.map (fun (_, name, _) -> sprintf "Service <%s> is killed" name)
+            |> List.map (fun (_, name, _) -> sprintf "Service <%s> crashed" name)
 
         { state with
               containers =
