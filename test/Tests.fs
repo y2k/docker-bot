@@ -62,6 +62,6 @@ let ``integration test`` () =
                             ContainerId "3", "service3", Exited ]
         env.run ()
         Assert.Equal
-            (box [ "Service <service2> is killed"
-                   "Service <service3> is killed" ],
+            (box [ "Service <service2> crashed"
+                   "Service <service3> crashed" ],
              !env.messages))
