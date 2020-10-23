@@ -10,8 +10,8 @@ type Status =
 type ContainerId = ContainerId of string
 
 type State =
-    { containers: ContainerId Set }
-    static member Empty = { containers = Set.empty }
+    { containers: Map<ContainerId, Status> }
+    static member Empty = { containers = Map.empty }
 
 module Service =
     let parseStatus state status =
@@ -37,17 +37,28 @@ module Service =
             | Running _
             | Created -> false
 
+        let isRestarted id status =
+            match status, Map.tryFind id state.containers with
+            | Running time, Some (Running oldTime) when time < oldTime -> true
+            | _ -> false
+
         let messages =
             containers
-            |> List.filter (fun (id, _, s) -> isExited s && Set.contains id state.containers)
+            |> List.filter (fun (id, _, s) -> isExited s && Map.containsKey id state.containers)
             |> List.map (fun (_, name, _) -> sprintf "Service <%s> crashed" name)
+
+        let restartMessages =
+            containers
+            |> List.filter (fun (id, _, s) -> isRestarted id s)
+            |> List.map (fun (_, name, _) -> sprintf "Service <%s> restarted" name)
 
         { state with
               containers =
                   containers
-                  |> List.choose (fun (id, _, status) -> if isExited status then None else Some id)
-                  |> Set.ofList },
-        messages
+                  |> List.choose (fun (id, _, status) ->
+                        if isExited status then None else Some (id, status))
+                  |> Map.ofList },
+        restartMessages @ messages
 
     let run getContainers sendMessages state =
         async {

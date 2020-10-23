@@ -24,6 +24,17 @@ module TestFramework =
         |> callback
 
 [<Fact>]
+let ``send notification when service restarted`` () =
+    TestFramework.run <| fun env ->
+        env.setContainers [ ContainerId "1", "service1", Running <| TimeSpan.FromSeconds 30.0 ]
+        env.run ()
+        Assert.Equal(box [], !env.messages)
+
+        env.setContainers [ ContainerId "1", "service1", Running <| TimeSpan.FromSeconds 10.0 ]
+        env.run ()
+        Assert.Equal (box [ "Service <service1> restarted" ], !env.messages)
+
+[<Fact>]
 let ``same call should not trigger`` () =
     TestFramework.run (fun env ->
         env.run ()
