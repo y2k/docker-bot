@@ -1,8 +1,10 @@
 module Application
 
+open System
+
 type Status =
     | Exited
-    | Running
+    | Running of TimeSpan
     | Created
 
 type ContainerId = ContainerId of string
@@ -12,10 +14,19 @@ type State =
     static member Empty = { containers = Set.empty }
 
 module Service =
-    let parseStatus =
-        function
+    let parseStatus state status =
+        let parseUpTime =
+            function
+            | "Up About a minute" -> Ok <| TimeSpan.FromMinutes 1.0
+            | Regex "Up (\d+) seconds" [ x ] -> Ok <| TimeSpan.FromSeconds(float x)
+            | Regex "Up (\d+) minutes" [ x ] -> Ok <| TimeSpan.FromMinutes(float x)
+            | Regex "Up (\d+) days" [ x ] -> Ok <| TimeSpan.FromDays(float x)
+            | Regex "Up (\d+) weeks" [ x ] -> Ok <| TimeSpan.FromDays(7.0 * float x)
+            | Regex "Up (\d+) months" [ x ] -> Ok <| TimeSpan.FromDays(30.0 * float x)
+            | time -> Error <| sprintf "Can't parse %s" time
+        match state with
         | "exited" -> Ok Exited
-        | "running" -> Ok Running
+        | "running" -> parseUpTime status |> Result.map Running
         | "created" -> Ok Created
         | s -> Error <| sprintf "Can't parse '%s'" s
 
@@ -23,7 +34,7 @@ module Service =
         let isExited =
             function
             | Exited -> true
-            | Running
+            | Running _
             | Created -> false
 
         let messages =
@@ -57,7 +68,7 @@ module Docker =
                 containers
                 |> Seq.map (fun x ->
                     let status =
-                        Service.parseStatus x.State |> Result.unwrap
+                        Service.parseStatus x.State x.Status |> Result.unwrap
 
                     ContainerId x.ID, toNames x.Names, status)
                 |> Seq.toList

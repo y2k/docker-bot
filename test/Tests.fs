@@ -1,5 +1,6 @@
 module Tests
 
+open System
 open Xunit
 open Application
 
@@ -28,7 +29,7 @@ let ``same call should not trigger`` () =
         env.run ()
         Assert.Equal(box [], !env.messages)
 
-        env.setContainers [ ContainerId "1", "service1", Running
+        env.setContainers [ ContainerId "1", "service1", Running TimeSpan.Zero
                             ContainerId "2", "service2", Exited
                             ContainerId "3", "service3", Created ]
         for _ in 1 .. 3 do
@@ -41,7 +42,7 @@ let ``first start test`` () =
         env.run ()
         Assert.Equal(box [], !env.messages)
 
-        env.setContainers [ ContainerId "1", "service1", Running
+        env.setContainers [ ContainerId "1", "service1", Running TimeSpan.Zero
                             ContainerId "2", "service2", Exited
                             ContainerId "3", "service3", Exited ]
         env.run ()
@@ -50,13 +51,13 @@ let ``first start test`` () =
 [<Fact>]
 let ``integration test`` () =
     TestFramework.run (fun env ->
-        env.setContainers [ ContainerId "1", "service1", Running
-                            ContainerId "2", "service2", Running
-                            ContainerId "3", "service3", Running ]
+        env.setContainers [ ContainerId "1", "service1", Running TimeSpan.Zero
+                            ContainerId "2", "service2", Running TimeSpan.Zero
+                            ContainerId "3", "service3", Running TimeSpan.Zero ]
         env.run ()
         Assert.Equal(box [], !env.messages)
 
-        env.setContainers [ ContainerId "1", "service1", Running
+        env.setContainers [ ContainerId "1", "service1", Running TimeSpan.Zero
                             ContainerId "2", "service2", Exited
                             ContainerId "3", "service3", Exited ]
         env.run ()
