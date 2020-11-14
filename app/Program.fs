@@ -17,13 +17,15 @@ module Service =
     let parseStatus state status =
         let parseUpTime =
             function
+            | "Up Less than a second" -> Ok <| TimeSpan.FromSeconds 1.0
             | "Up About a minute" -> Ok <| TimeSpan.FromMinutes 1.0
             | Regex "Up (\d+) seconds" [ x ] -> Ok <| TimeSpan.FromSeconds(float x)
             | Regex "Up (\d+) minutes" [ x ] -> Ok <| TimeSpan.FromMinutes(float x)
             | Regex "Up (\d+) days" [ x ] -> Ok <| TimeSpan.FromDays(float x)
             | Regex "Up (\d+) weeks" [ x ] -> Ok <| TimeSpan.FromDays(7.0 * float x)
             | Regex "Up (\d+) months" [ x ] -> Ok <| TimeSpan.FromDays(30.0 * float x)
-            | time -> Error <| sprintf "Can't parse %s" time
+            | time -> Error <| sprintf "Can't parse '%s'" time
+
         match state with
         | "exited" -> Ok Exited
         | "running" -> parseUpTime status |> Result.map Running
@@ -55,8 +57,7 @@ module Service =
         { state with
               containers =
                   containers
-                  |> List.choose (fun (id, _, status) ->
-                        if isExited status then None else Some (id, status))
+                  |> List.choose (fun (id, _, status) -> if isExited status then None else Some(id, status))
                   |> Map.ofList },
         restartMessages @ messages
 
@@ -76,19 +77,26 @@ module Docker =
         async {
             let mapContainers (containers: #seq<ContainerListResponse>) =
                 let toNames xs = Seq.reduce (sprintf "%s - %s") xs
-                containers
-                |> Seq.map (fun x ->
-                    let status =
-                        Service.parseStatus x.State x.Status |> Result.unwrap
 
-                    ContainerId x.ID, toNames x.Names, status)
+                containers
+                |> Seq.map
+                    (fun x ->
+                        let status =
+                            Service.parseStatus x.State x.Status
+                            |> Result.unwrap
+
+                        ContainerId x.ID, toNames x.Names, status)
                 |> Seq.toList
 
             use client =
                 (new DockerClientConfiguration()).CreateClient()
 
-            return client.Containers.ListContainersAsync(ContainersListParameters(Limit = !>100L)).Result
-                   |> mapContainers
+            return
+                client
+                    .Containers
+                    .ListContainersAsync(ContainersListParameters(Limit = !>100L))
+                    .Result
+                |> mapContainers
         }
 
 module Telegram =
@@ -96,11 +104,13 @@ module Telegram =
 
     let sendMessage token =
         let client = TelegramBotClient token
+
         fun (user: string) messages ->
             messages
-            |> List.map (fun text ->
-                client.SendTextMessageAsync(!>user, text)
-                |> Async.AwaitTask)
+            |> List.map
+                (fun text ->
+                    client.SendTextMessageAsync(!>user, text)
+                    |> Async.AwaitTask)
             |> Async.Sequential
             |> Async.Ignore
 
@@ -109,11 +119,14 @@ let main argv =
     let sendMessages = Telegram.sendMessage argv.[0] argv.[1]
 
     printfn "Application started ..."
+
     async {
         let state = ref State.Empty
+
         while true do
             do! Service.run Docker.getContainers sendMessages state
             do! Async.Sleep 15_000
     }
     |> Async.RunSynchronously
+
     0
