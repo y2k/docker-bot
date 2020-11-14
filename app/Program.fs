@@ -19,11 +19,11 @@ module Service =
             function
             | "Up Less than a second" -> Ok <| TimeSpan.FromSeconds 1.0
             | "Up About a minute" -> Ok <| TimeSpan.FromMinutes 1.0
-            | Regex "Up (\d+) seconds" [ x ] -> Ok <| TimeSpan.FromSeconds(float x)
-            | Regex "Up (\d+) minutes" [ x ] -> Ok <| TimeSpan.FromMinutes(float x)
-            | Regex "Up (\d+) days" [ x ] -> Ok <| TimeSpan.FromDays(float x)
-            | Regex "Up (\d+) weeks" [ x ] -> Ok <| TimeSpan.FromDays(7.0 * float x)
-            | Regex "Up (\d+) months" [ x ] -> Ok <| TimeSpan.FromDays(30.0 * float x)
+            | Regex "Up (\d+) second" [ x ] -> Ok <| TimeSpan.FromSeconds(float x)
+            | Regex "Up (\d+) minute" [ x ] -> Ok <| TimeSpan.FromMinutes(float x)
+            | Regex "Up (\d+) day" [ x ] -> Ok <| TimeSpan.FromDays(float x)
+            | Regex "Up (\d+) week" [ x ] -> Ok <| TimeSpan.FromDays(7.0 * float x)
+            | Regex "Up (\d+) month" [ x ] -> Ok <| TimeSpan.FromDays(30.0 * float x)
             | time -> Error <| sprintf "Can't parse '%s'" time
 
         match state with
