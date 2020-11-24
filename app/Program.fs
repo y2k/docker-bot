@@ -17,6 +17,7 @@ module Service =
     let parseStatus state status =
         let parseUpTime =
             function
+            | "Up About an hour" -> Ok <| TimeSpan.FromHours 1.0
             | "Up Less than a second" -> Ok <| TimeSpan.FromSeconds 1.0
             | "Up About a minute" -> Ok <| TimeSpan.FromMinutes 1.0
             | Regex "Up (\d+) second" [ x ] -> Ok <| TimeSpan.FromSeconds(float x)

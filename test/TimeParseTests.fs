@@ -13,6 +13,7 @@ let ``parse time tests`` () =
             |> Result.bind (function Running x -> Ok x | _ -> failwith "???")
         test <@ Ok b = a @>
 
+    test "Up About an hour" <| TimeSpan.FromHours 1.0
     test "Up Less than a second" <| TimeSpan.FromSeconds 1.0
     test "Up 1 second" <| TimeSpan.FromSeconds 1.0
     test "Up 59 seconds" <| TimeSpan.FromSeconds 59.0
