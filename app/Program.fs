@@ -22,6 +22,7 @@ module Service =
             | "Up About a minute" -> Ok <| TimeSpan.FromMinutes 1.0
             | Regex "Up (\d+) second" [ x ] -> Ok <| TimeSpan.FromSeconds(float x)
             | Regex "Up (\d+) minute" [ x ] -> Ok <| TimeSpan.FromMinutes(float x)
+            | Regex "Up (\d+) hours" [ x ] -> Ok <| TimeSpan.FromHours(float x)
             | Regex "Up (\d+) day" [ x ] -> Ok <| TimeSpan.FromDays(float x)
             | Regex "Up (\d+) week" [ x ] -> Ok <| TimeSpan.FromDays(7.0 * float x)
             | Regex "Up (\d+) month" [ x ] -> Ok <| TimeSpan.FromDays(30.0 * float x)
