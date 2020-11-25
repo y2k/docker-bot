@@ -5,20 +5,24 @@ open Xunit
 open Swensen.Unquote
 open Application
 
-[<Fact>]
-let ``parse time tests`` () =
-    let test a b =
-        let a =
-            Service.parseStatus "running" a
-            |> Result.bind (function Running x -> Ok x | _ -> failwith "???")
-        test <@ Ok b = a @>
+[<Theory>]
+[<InlineData("Up About an hour", "01:00:00")>]
+[<InlineData("Up Less than a second", "00:00:01")>]
+[<InlineData("Up 1 second", "00:00:01")>]
+[<InlineData("Up 59 seconds", "00:00:59")>]
+[<InlineData("Up About a minute", "00:01:00")>]
+[<InlineData("Up 2 minutes", "00:02:00")>]
+[<InlineData("Up 8 days", "8.00:00:00")>]
+[<InlineData("Up 2 weeks", "14.00:00:00")>]
+[<InlineData("Up 2 months", "60.00:00:00")>]
+let ``parse time tests`` input expected =
+    let expected = TimeSpan.Parse expected
 
-    test "Up About an hour" <| TimeSpan.FromHours 1.0
-    test "Up Less than a second" <| TimeSpan.FromSeconds 1.0
-    test "Up 1 second" <| TimeSpan.FromSeconds 1.0
-    test "Up 59 seconds" <| TimeSpan.FromSeconds 59.0
-    test "Up About a minute"<|  TimeSpan.FromMinutes 1.0
-    test "Up 2 minutes" <| TimeSpan.FromMinutes 2.0
-    test "Up 8 days" <| TimeSpan.FromDays 8.0
-    test "Up 2 weeks" <| TimeSpan.FromDays 7.0 * 2.0
-    test "Up 2 months" <| TimeSpan.FromDays 30.0 * 2.0
+    let actual =
+        Service.parseStatus "running" input
+        |> Result.bind
+            (function
+            | Running x -> Ok x
+            | _ -> failwith "???")
+
+    test <@ Ok expected = actual @>
