@@ -17,9 +17,9 @@ module Service =
     let parseStatus state status =
         let parseUpTime =
             function
-            | "Up About an hour" -> Ok <| TimeSpan.FromHours 1.0
-            | "Up Less than a second" -> Ok <| TimeSpan.FromSeconds 1.0
-            | "Up About a minute" -> Ok <| TimeSpan.FromMinutes 1.0
+            | Regex "Up About an hour" [] -> Ok <| TimeSpan.FromHours 1.0
+            | Regex "Up Less than a second" [] -> Ok <| TimeSpan.FromSeconds 1.0
+            | Regex "Up About a minute" [] -> Ok <| TimeSpan.FromMinutes 1.0
             | Regex "Up (\d+) second" [ x ] -> Ok <| TimeSpan.FromSeconds(float x)
             | Regex "Up (\d+) minute" [ x ] -> Ok <| TimeSpan.FromMinutes(float x)
             | Regex "Up (\d+) hours" [ x ] -> Ok <| TimeSpan.FromHours(float x)
@@ -59,7 +59,12 @@ module Service =
         { state with
               containers =
                   containers
-                  |> List.choose (fun (id, _, status) -> if isExited status then None else Some(id, status))
+                  |> List.choose
+                      (fun (id, _, status) ->
+                          if isExited status then
+                              None
+                          else
+                              Some(id, status))
                   |> Map.ofList },
         restartMessages @ messages
 

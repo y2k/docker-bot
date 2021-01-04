@@ -11,6 +11,7 @@ open Application
 [<InlineData("Up 1 second", "00:00:01")>]
 [<InlineData("Up 59 seconds", "00:00:59")>]
 [<InlineData("Up About a minute", "00:01:00")>]
+[<InlineData("Up About a minute (health: starting)", "00:01:00")>]
 [<InlineData("Up 2 minutes", "00:02:00")>]
 [<InlineData("Up 2 hours", "02:00:00")>]
 [<InlineData("Up 8 days", "8.00:00:00")>]
