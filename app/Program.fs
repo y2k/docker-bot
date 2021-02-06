@@ -2,9 +2,11 @@ module Application
 
 open System
 
+type HealthStatus = NoneHealth | HealthStarting | Healthy | Unhealthy
+
 type Status =
     | Exited
-    | Running of TimeSpan
+    | Running of TimeSpan * HealthStatus
     | Created
 
 type ContainerId = ContainerId of string
@@ -28,9 +30,16 @@ module Service =
             | Regex "Up (\d+) month" [ x ] -> Ok <| TimeSpan.FromDays(30.0 * float x)
             | time -> Error <| sprintf "Can't parse '%s'" time
 
+        let parseHealth =
+            function
+            | Regex """\(health: starting\)""" [] -> HealthStarting
+            | Regex """\(healthy\)""" [] -> Healthy
+            | Regex """\(unhealthy\)""" [] -> Unhealthy
+            | _ -> NoneHealth
+
         match state with
         | "exited" -> Ok Exited
-        | "running" -> parseUpTime status |> Result.map Running
+        | "running" -> parseUpTime status |> Result.map (fun s -> Running (s, parseHealth status))
         | "created" -> Ok Created
         | s -> Error <| sprintf "Can't parse '%s'" s
 
@@ -43,7 +52,7 @@ module Service =
 
         let isRestarted id status =
             match status, Map.tryFind id state.containers with
-            | Running time, Some (Running oldTime) when time < oldTime -> true
+            | Running (time, _), Some (Running (oldTime, _)) when time < oldTime -> true
             | _ -> false
 
         let messages =
@@ -56,6 +65,15 @@ module Service =
             |> List.filter (fun (id, _, s) -> isRestarted id s)
             |> List.map (fun (_, name, _) -> sprintf "Service <%s> restarted" name)
 
+        let unhealthyMessages =
+            containers
+            |> List.filter (fun (id, _, s) ->
+                    match s, Map.tryFind id state.containers with
+                    | Running (_, Unhealthy), Some (Running (_, Healthy)) -> true
+                    | _ -> false
+            )
+            |> List.map (fun (_, name, _) -> sprintf "Service <%s> unhealthy" name)
+
         { state with
               containers =
                   containers
@@ -66,7 +84,7 @@ module Service =
                           else
                               Some(id, status))
                   |> Map.ofList },
-        restartMessages @ messages
+        restartMessages @ messages @ unhealthyMessages
 
     let run getContainers sendMessages state =
         async {

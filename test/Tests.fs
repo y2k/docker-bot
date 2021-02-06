@@ -2,6 +2,7 @@ module Tests
 
 open System
 open Xunit
+open Swensen.Unquote
 open Application
 
 module TestFramework =
@@ -23,14 +24,41 @@ module TestFramework =
           messages = messages }
         |> callback
 
+    let mkRunning timeSec = Running (TimeSpan.FromSeconds timeSec, NoneHealth)
+    let mkRunning' timeSec h = Running (TimeSpan.FromSeconds timeSec, h)
+
+module T = TestFramework
+
+[<Fact>]
+let ``send notification when service unhealthy`` () =
+    TestFramework.run <| fun env ->
+        env.setContainers [ ContainerId "1", "service1", T.mkRunning' 10.0 Healthy ]
+        env.run ()
+        test <@ [] = !env.messages @>
+
+        env.setContainers [ ContainerId "1", "service1", T.mkRunning' 10.0 Unhealthy ]
+        env.run ()
+        test <@ [ "Service <service1> unhealthy" ] = !env.messages @>
+
+[<Fact>]
+let ``no double unhealthy notification`` () =
+    TestFramework.run <| fun env ->
+        env.setContainers [ ContainerId "1", "service1", T.mkRunning' 10.0 Unhealthy ]
+        env.run ()
+        test <@ [] = !env.messages @>
+
+        env.setContainers [ ContainerId "1", "service1", T.mkRunning' 10.0 Unhealthy ]
+        env.run ()
+        test <@ [] = !env.messages @>
+
 [<Fact>]
 let ``send notification when service restarted`` () =
     TestFramework.run <| fun env ->
-        env.setContainers [ ContainerId "1", "service1", Running <| TimeSpan.FromSeconds 30.0 ]
+        env.setContainers [ ContainerId "1", "service1", T.mkRunning 30.0 ]
         env.run ()
         Assert.Equal(box [], !env.messages)
 
-        env.setContainers [ ContainerId "1", "service1", Running <| TimeSpan.FromSeconds 10.0 ]
+        env.setContainers [ ContainerId "1", "service1", T.mkRunning 10.0 ]
         env.run ()
         Assert.Equal (box [ "Service <service1> restarted" ], !env.messages)
 
@@ -40,7 +68,7 @@ let ``same call should not trigger`` () =
         env.run ()
         Assert.Equal(box [], !env.messages)
 
-        env.setContainers [ ContainerId "1", "service1", Running TimeSpan.Zero
+        env.setContainers [ ContainerId "1", "service1", T.mkRunning  0.0
                             ContainerId "2", "service2", Exited
                             ContainerId "3", "service3", Created ]
         for _ in 1 .. 3 do
@@ -53,7 +81,7 @@ let ``first start test`` () =
         env.run ()
         Assert.Equal(box [], !env.messages)
 
-        env.setContainers [ ContainerId "1", "service1", Running TimeSpan.Zero
+        env.setContainers [ ContainerId "1", "service1", T.mkRunning 0.0
                             ContainerId "2", "service2", Exited
                             ContainerId "3", "service3", Exited ]
         env.run ()
@@ -62,13 +90,13 @@ let ``first start test`` () =
 [<Fact>]
 let ``integration test`` () =
     TestFramework.run (fun env ->
-        env.setContainers [ ContainerId "1", "service1", Running TimeSpan.Zero
-                            ContainerId "2", "service2", Running TimeSpan.Zero
-                            ContainerId "3", "service3", Running TimeSpan.Zero ]
+        env.setContainers [ ContainerId "1", "service1", T.mkRunning 0.0
+                            ContainerId "2", "service2", T.mkRunning 0.0
+                            ContainerId "3", "service3", T.mkRunning 0.0 ]
         env.run ()
         Assert.Equal(box [], !env.messages)
 
-        env.setContainers [ ContainerId "1", "service1", Running TimeSpan.Zero
+        env.setContainers [ ContainerId "1", "service1", T.mkRunning 0.0
                             ContainerId "2", "service2", Exited
                             ContainerId "3", "service3", Exited ]
         env.run ()
