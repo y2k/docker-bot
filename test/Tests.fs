@@ -30,6 +30,17 @@ module TestFramework =
 module T = TestFramework
 
 [<Fact>]
+let ``send notification when service unhealthy from started`` () =
+    TestFramework.run <| fun env ->
+        env.setContainers [ ContainerId "1", "service1", T.mkRunning' 10.0 HealthStarting ]
+        env.run ()
+        test <@ [] = !env.messages @>
+
+        env.setContainers [ ContainerId "1", "service1", T.mkRunning' 10.0 Unhealthy ]
+        env.run ()
+        test <@ [ "Service <service1> unhealthy" ] = !env.messages @>
+
+[<Fact>]
 let ``send notification when service unhealthy`` () =
     TestFramework.run <| fun env ->
         env.setContainers [ ContainerId "1", "service1", T.mkRunning' 10.0 Healthy ]

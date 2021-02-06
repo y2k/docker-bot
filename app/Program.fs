@@ -70,6 +70,7 @@ module Service =
             |> List.filter (fun (id, _, s) ->
                     match s, Map.tryFind id state.containers with
                     | Running (_, Unhealthy), Some (Running (_, Healthy)) -> true
+                    | Running (_, Unhealthy), Some (Running (_, HealthStarting)) -> true
                     | _ -> false
             )
             |> List.map (fun (_, name, _) -> sprintf "Service <%s> unhealthy" name)
