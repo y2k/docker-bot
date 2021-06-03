@@ -2,7 +2,43 @@ module Application
 
 open System
 
-type HealthStatus = NoneHealth | HealthStarting | Healthy | Unhealthy
+module TelegramBot =
+    module C = CommandParser
+
+    let private parseFreeResult =
+        function
+        | Regex "Mem: +(\\d+) +(\\d+)" [ total; used ] -> sprintf "%i MB / %i MB" (int used / 1024) (int total / 1024)
+        | _ -> "ERROR: Can't get free memory"
+
+    let private commands runBash =
+        [ C.Command [ C.Name "free"
+                      C.Description "Show free memory"
+                      C.Return(lazy (runBash "free" |> Async.map parseFreeResult)) ] ]
+
+    let main readMessage sendMessage runBash =
+        async {
+            let eval msg = C.eval msg (commands runBash)
+
+            while true do
+                let! (user, msg) = readMessage
+
+                let! response =
+                    match eval msg with
+                    | Ok msg -> msg
+                    | Error e -> async.Return e
+
+                do! sendMessage user response
+        }
+
+    let shell (_: string) : string Async = TODO()
+
+// === === === === === === === === === === === === === ===
+
+type HealthStatus =
+    | NoneHealth
+    | HealthStarting
+    | Healthy
+    | Unhealthy
 
 type Status =
     | Exited
@@ -39,7 +75,9 @@ module Service =
 
         match state with
         | "exited" -> Ok Exited
-        | "running" -> parseUpTime status |> Result.map (fun s -> Running (s, parseHealth status))
+        | "running" ->
+            parseUpTime status
+            |> Result.map (fun s -> Running(s, parseHealth status))
         | "created" -> Ok Created
         | s -> Error <| sprintf "Can't parse '%s'" s
 
@@ -67,12 +105,12 @@ module Service =
 
         let unhealthyMessages =
             containers
-            |> List.filter (fun (id, _, s) ->
+            |> List.filter
+                (fun (id, _, s) ->
                     match s, Map.tryFind id state.containers with
                     | Running (_, Unhealthy), Some (Running (_, Healthy)) -> true
                     | Running (_, Unhealthy), Some (Running (_, HealthStarting)) -> true
-                    | _ -> false
-            )
+                    | _ -> false)
             |> List.map (fun (_, name, _) -> sprintf "Service <%s> unhealthy" name)
 
         { state with
@@ -120,7 +158,9 @@ module Docker =
             return
                 client
                     .Containers
-                    .ListContainersAsync(ContainersListParameters(Limit = !>100L))
+                    .ListContainersAsync(
+                        ContainersListParameters(Limit = !>100L)
+                    )
                     .Result
                 |> mapContainers
         }
@@ -128,31 +168,45 @@ module Docker =
 module Telegram =
     open Telegram.Bot
 
-    let sendMessage token =
-        let client = TelegramBotClient token
+    type t = private { client: TelegramBotClient }
 
-        fun (user: string) messages ->
-            messages
-            |> List.map
-                (fun text ->
-                    client.SendTextMessageAsync(!>user, text)
-                    |> Async.AwaitTask)
-            |> Async.Sequential
-            |> Async.Ignore
+    let make token = { client = TelegramBotClient token }
+
+    let getNewMessage t = async { return TODO() }
+
+    let sendMessage t (user: string) messages =
+        messages
+        |> List.map
+            (fun text ->
+                t.client.SendTextMessageAsync(!>user, text)
+                |> Async.AwaitTask)
+        |> Async.Sequential
+        |> Async.Ignore
 
 [<EntryPoint>]
 let main argv =
-    let sendMessages = Telegram.sendMessage argv.[0] argv.[1]
+    let telegram = Telegram.make argv.[0]
+    let userId = argv.[1]
+    let sendMessages = Telegram.sendMessage telegram
 
     printfn "Application started ..."
 
-    async {
-        let state = ref State.Empty
+    let checkAsync =
+        async {
+            let state = ref State.Empty
 
-        while true do
-            do! Service.run Docker.getContainers sendMessages state
-            do! Async.Sleep 15_000
-    }
+            while true do
+                do! Service.run Docker.getContainers (sendMessages userId) state
+                do! Async.Sleep 15_000
+        }
+
+    [ checkAsync
+      TelegramBot.main
+          (Telegram.getNewMessage telegram)
+          (fun userId msg -> sendMessages userId [ msg ])
+          TelegramBot.shell ]
+    |> Async.Parallel
+    |> Async.Ignore
     |> Async.RunSynchronously
 
     0
