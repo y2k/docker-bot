@@ -30,7 +30,8 @@ module TelegramBot =
                 do! sendMessage user response
         }
 
-    let shell (_: string) : string Async = TODO()
+module Bash =
+    let run (_: string) : string Async = TODO()
 
 // === === === === === === === === === === === === === ===
 
@@ -204,7 +205,7 @@ let main argv =
       TelegramBot.main
           (Telegram.getNewMessage telegram)
           (fun userId msg -> sendMessages userId [ msg ])
-          TelegramBot.shell ]
+          Bash.run ]
     |> Async.Parallel
     |> Async.Ignore
     |> Async.RunSynchronously
