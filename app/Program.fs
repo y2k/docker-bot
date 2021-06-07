@@ -31,7 +31,17 @@ module TelegramBot =
         }
 
 module Bash =
-    let run (_: string) : string Async = TODO()
+    open System.Diagnostics
+
+    let run (_: string) : string Async =
+        async {
+            let p =
+                new Process(StartInfo = new ProcessStartInfo(FileName = "free", RedirectStandardOutput = true))
+
+            p.Start() |> ignore
+            p.WaitForExit()
+            return p.StandardOutput.ReadToEnd()
+        }
 
 // === === === === === === === === === === === === === ===
 
@@ -192,20 +202,14 @@ let main argv =
 
     printfn "Application started ..."
 
-    let checkAsync =
-        async {
-            let state = ref State.Empty
+    [ async {
+        let state = ref State.Empty
 
-            while true do
-                do! Service.run Docker.getContainers (sendMessages userId) state
-                do! Async.Sleep 15_000
-        }
-
-    [ checkAsync
-      TelegramBot.main
-          (Telegram.getNewMessage telegram)
-          (fun userId msg -> sendMessages userId [ msg ])
-          Bash.run ]
+        while true do
+            do! Service.run Docker.getContainers (sendMessages userId) state
+            do! Async.Sleep 15_000
+      }
+      TelegramBot.main (Telegram.getNewMessage telegram) (fun userId msg -> sendMessages userId [ msg ]) Bash.run ]
     |> Async.Parallel
     |> Async.Ignore
     |> Async.RunSynchronously
