@@ -5,3 +5,5 @@ obj/
 *.ipynb
 
 .fake
+
+.DS_Store
