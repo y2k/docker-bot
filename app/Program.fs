@@ -193,6 +193,9 @@ module Telegram =
 
         clearHistory' 0
 
+    type UserId = private UserId of string
+    let userIdFrom = UserId
+
     let getNewMessage t =
         let rec tryRead offset =
             async {
@@ -212,10 +215,10 @@ module Telegram =
             let! updates = tryRead !offset
             let x = updates.[0]
             offset := x.Id + 1
-            return string x.Message.From.Id, x.Message.Text
+            return string x.Message.From.Id |> UserId, x.Message.Text
         }
 
-    let sendMessage t (user: string) messages =
+    let sendMessage t (UserId user) messages =
         messages
         |> List.map
             (fun text ->
@@ -240,7 +243,7 @@ let main argv =
                 let state = ref State.Empty
 
                 while true do
-                    do! Service.run Docker.getContainers (sendMessages userId) state
+                    do! Service.run Docker.getContainers (sendMessages <| Telegram.userIdFrom userId) state
                     do! Async.Sleep 15_000
               }
               TelegramBot.main
