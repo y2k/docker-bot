@@ -6,7 +6,6 @@ module Async =
     let inline repeat task =
         async {
             let! cancelToken = Async.CancellationToken
-
             while not cancelToken.IsCancellationRequested do
                 do! task
         }
