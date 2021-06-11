@@ -2,14 +2,6 @@ module Application
 
 open System
 
-module Async =
-    let inline repeat task =
-        async {
-            let! cancelToken = Async.CancellationToken
-            while not cancelToken.IsCancellationRequested do
-                do! task
-        }
-
 module TelegramBot =
     module C = CommandParser
 
@@ -24,14 +16,14 @@ module TelegramBot =
                       C.Return(lazy (runBash "free" |> Async.map parseFreeResult)) ] ]
 
     let main readMessage sendMessage runBash =
-        let eval msg = C.eval msg (makeCommands runBash)
-
         async {
-            let! (user, msg) = readMessage
-            let! response = eval msg |> Result.fold id async.Return
-            do! sendMessage user response
+            let eval msg = C.eval msg (makeCommands runBash)
+
+            while true do
+                let! (user, msg) = readMessage
+                let! response = eval msg |> Result.fold id async.Return
+                do! sendMessage user response
         }
-        |> Async.repeat
 
 module Bash =
     open System.Diagnostics
