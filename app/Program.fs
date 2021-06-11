@@ -2,6 +2,15 @@ module Application
 
 open System
 
+module Async =
+    let inline repeat task =
+        async {
+            let! cancelToken = Async.CancellationToken
+
+            while not cancelToken.IsCancellationRequested do
+                do! task
+        }
+
 module TelegramBot =
     module C = CommandParser
 
@@ -16,15 +25,14 @@ module TelegramBot =
                       C.Return(lazy (runBash "free" |> Async.map parseFreeResult)) ] ]
 
     let main readMessage sendMessage runBash =
-        async {
-            let eval msg = C.eval msg (makeCommands runBash)
-            let! cancelToken = Async.CancellationToken
+        let eval msg = C.eval msg (makeCommands runBash)
 
-            while not cancelToken.IsCancellationRequested do
-                let! (user, msg) = readMessage
-                let! response = eval msg |> Result.fold id async.Return
-                do! sendMessage user response
+        async {
+            let! (user, msg) = readMessage
+            let! response = eval msg |> Result.fold id async.Return
+            do! sendMessage user response
         }
+        |> Async.repeat
 
 module Bash =
     open System.Diagnostics
@@ -193,6 +201,9 @@ module Telegram =
 
         clearHistory' 0
 
+    type UserId = private UserId of string
+    let userIdFrom = UserId
+
     let getNewMessage t =
         let rec tryRead offset =
             async {
@@ -212,10 +223,10 @@ module Telegram =
             let! updates = tryRead !offset
             let x = updates.[0]
             offset := x.Id + 1
-            return string x.Message.From.Id, x.Message.Text
+            return string x.Message.From.Id |> UserId, x.Message.Text
         }
 
-    let sendMessage t (user: string) messages =
+    let sendMessage t (UserId user) messages =
         messages
         |> List.map
             (fun text ->
@@ -240,7 +251,7 @@ let main argv =
                 let state = ref State.Empty
 
                 while true do
-                    do! Service.run Docker.getContainers (sendMessages userId) state
+                    do! Service.run Docker.getContainers (sendMessages <| Telegram.userIdFrom userId) state
                     do! Async.Sleep 15_000
               }
               TelegramBot.main
