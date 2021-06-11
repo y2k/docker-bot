@@ -10,33 +10,29 @@ module TelegramBot =
         | Regex "Mem: +(\\d+) +(\\d+)" [ total; used ] -> sprintf "%i MB / %i MB" (int used / 1024) (int total / 1024)
         | _ -> "ERROR: Can't get free memory"
 
-    let private commands runBash =
+    let private makeCommands runBash =
         [ C.Command [ C.Name "free"
                       C.Description "Show free memory"
                       C.Return(lazy (runBash "free" |> Async.map parseFreeResult)) ] ]
 
     let main readMessage sendMessage runBash =
         async {
-            let eval msg = C.eval msg (commands runBash)
+            let eval msg = C.eval msg (makeCommands runBash)
+            let! cancelToken = Async.CancellationToken
 
-            while true do
+            while not cancelToken.IsCancellationRequested do
                 let! (user, msg) = readMessage
-
-                let! response =
-                    match eval msg with
-                    | Ok msg -> msg
-                    | Error e -> async.Return e
-
+                let! response = eval msg |> Result.fold id async.Return
                 do! sendMessage user response
         }
 
 module Bash =
     open System.Diagnostics
 
-    let run (_: string) : string Async =
+    let run (cmd: string) : string Async =
         async {
             let p =
-                new Process(StartInfo = new ProcessStartInfo(FileName = "free", RedirectStandardOutput = true))
+                new Process(StartInfo = new ProcessStartInfo(FileName = cmd, RedirectStandardOutput = true))
 
             p.Start() |> ignore
             p.WaitForExit()
@@ -183,7 +179,41 @@ module Telegram =
 
     let make token = { client = TelegramBotClient token }
 
-    let getNewMessage t = async { return TODO() }
+    let clearHistory t =
+        let rec clearHistory' offset =
+            async {
+                let! updates =
+                    t.client.GetUpdatesAsync(offset = offset, limit = 100, timeout = 0)
+                    |> Async.AwaitTask
+
+                if not <| Array.isEmpty updates then
+                    let lastMsg = updates |> Array.last
+                    do! clearHistory' (lastMsg.Id + 1)
+            }
+
+        clearHistory' 0
+
+    let getNewMessage t =
+        let rec tryRead offset =
+            async {
+                let! updates =
+                    t.client.GetUpdatesAsync(offset = offset, limit = 1, timeout = 300)
+                    |> Async.AwaitTask
+
+                if Array.isEmpty updates then
+                    return! tryRead offset
+                else
+                    return updates
+            }
+
+        let offset = ref 0
+
+        async {
+            let! updates = tryRead !offset
+            let x = updates.[0]
+            offset := x.Id + 1
+            return string x.Message.From.Id, x.Message.Text
+        }
 
     let sendMessage t (user: string) messages =
         messages
@@ -196,22 +226,30 @@ module Telegram =
 
 [<EntryPoint>]
 let main argv =
-    let telegram = Telegram.make argv.[0]
-    let userId = argv.[1]
-    let sendMessages = Telegram.sendMessage telegram
+    async {
+        let telegram = Telegram.make argv.[0]
+        let userId = argv.[1]
+        let sendMessages = Telegram.sendMessage telegram
 
-    printfn "Application started ..."
+        do! Telegram.clearHistory telegram
 
-    [ async {
-        let state = ref State.Empty
+        printfn "Application started ..."
 
-        while true do
-            do! Service.run Docker.getContainers (sendMessages userId) state
-            do! Async.Sleep 15_000
-      }
-      TelegramBot.main (Telegram.getNewMessage telegram) (fun userId msg -> sendMessages userId [ msg ]) Bash.run ]
-    |> Async.Parallel
-    |> Async.Ignore
+        do!
+            [ async {
+                let state = ref State.Empty
+
+                while true do
+                    do! Service.run Docker.getContainers (sendMessages userId) state
+                    do! Async.Sleep 15_000
+              }
+              TelegramBot.main
+                  (Telegram.getNewMessage telegram)
+                  (fun userId msg -> sendMessages userId [ msg ])
+                  Bash.run ]
+            |> Async.Parallel
+            |> Async.Ignore
+    }
     |> Async.RunSynchronously
 
     0
