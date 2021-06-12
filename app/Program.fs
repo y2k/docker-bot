@@ -38,8 +38,6 @@ module Bash =
             return p.StandardOutput.ReadToEnd()
         }
 
-// === === === === === === === === === === === === === ===
-
 type HealthStatus =
     | NoneHealth
     | HealthStarting
@@ -54,8 +52,11 @@ type Status =
 type ContainerId = ContainerId of string
 
 type State =
-    { containers: Map<ContainerId, Status> }
-    static member Empty = { containers = Map.empty }
+    { containers: Map<ContainerId, Status>
+      nextRun: bool }
+    static member Empty =
+        { containers = Map.empty
+          nextRun = false }
 
 module Service =
     let parseStatus state status =
@@ -119,7 +120,19 @@ module Service =
                     | _ -> false)
             |> List.map (fun (_, name, _) -> sprintf "Service <%s> unhealthy" name)
 
+        let newContainersMessages =
+            if not state.nextRun then
+                []
+            else
+                containers
+                |> List.choose
+                    (fun (id, name, _) ->
+                        match Map.tryFind id state.containers with
+                        | None -> Some <| sprintf "New container <%s> appear" name
+                        | Some _ -> None)
+
         { state with
+              nextRun = true
               containers =
                   containers
                   |> List.choose
@@ -129,7 +142,11 @@ module Service =
                           else
                               Some(id, status))
                   |> Map.ofList },
-        restartMessages @ messages @ unhealthyMessages
+
+        List.concat [ restartMessages
+                      messages
+                      unhealthyMessages
+                      newContainersMessages ]
 
     let run getContainers sendMessages state =
         async {

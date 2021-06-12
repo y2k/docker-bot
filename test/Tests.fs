@@ -7,6 +7,31 @@ open Application
 module T = TestFramework
 
 [<Fact>]
+let ``show notification when new container appear`` () =
+    T.run
+    <| fun env ->
+        env.run ()
+        test <@ [] = !env.messages @>
+
+        env.setContainers [ ContainerId "1", "service1", T.mkRunning' 10.0 NoneHealth ]
+        env.run ()
+        test <@ [ "New container <service1> appear" ] = !env.messages @>
+
+[<Fact>]
+let ``show notification when new container appear when alread was containers`` () =
+    T.run
+    <| fun env ->
+        env.setContainers [ ContainerId "1", "service1", T.mkRunning' 10.0 NoneHealth ]
+
+        for _ in 1 .. 3 do
+            env.run ()
+            test <@ [] = !env.messages @>
+
+        env.setContainers [ ContainerId "2", "service2", T.mkRunning' 10.0 NoneHealth ]
+        env.run ()
+        test <@ [ "New container <service2> appear" ] = !env.messages @>
+
+[<Fact>]
 let ``send notification when service unhealthy from started`` () =
     TestFramework.run
     <| fun env ->
@@ -53,35 +78,6 @@ let ``send notification when service restarted`` () =
         env.setContainers [ ContainerId "1", "service1", T.mkRunning 10.0 ]
         env.run ()
         Assert.Equal(box [ "Service <service1> restarted" ], !env.messages)
-
-[<Fact>]
-let ``same call should not trigger`` () =
-    TestFramework.run
-        (fun env ->
-            env.run ()
-            Assert.Equal(box [], !env.messages)
-
-            env.setContainers [ ContainerId "1", "service1", T.mkRunning 0.0
-                                ContainerId "2", "service2", Exited
-                                ContainerId "3", "service3", Created ]
-
-            for _ in 1 .. 3 do
-                env.run ()
-                Assert.Equal(box [], !env.messages))
-
-[<Fact>]
-let ``first start test`` () =
-    TestFramework.run
-        (fun env ->
-            env.run ()
-            Assert.Equal(box [], !env.messages)
-
-            env.setContainers [ ContainerId "1", "service1", T.mkRunning 0.0
-                                ContainerId "2", "service2", Exited
-                                ContainerId "3", "service3", Exited ]
-
-            env.run ()
-            Assert.Equal(box [], !env.messages))
 
 [<Fact>]
 let ``integration test`` () =
