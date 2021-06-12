@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="utils/TestFramework.fs" />
     <Compile Include="BotCommandsTests.fs" />
     <Compile Include="TimeParseTests.fs" />
     <Compile Include="Tests.fs" />
