@@ -53,9 +53,11 @@ type ContainerId = ContainerId of string
 
 type State =
     { containers: Map<ContainerId, Status>
+      allContainers: Map<ContainerId, Status>
       nextRun: bool }
     static member Empty =
         { containers = Map.empty
+          allContainers = Map.empty
           nextRun = false }
 
 module Service =
@@ -127,12 +129,16 @@ module Service =
                 containers
                 |> List.choose
                     (fun (id, name, _) ->
-                        match Map.tryFind id state.containers with
+                        match Map.tryFind id state.allContainers with
                         | None -> Some <| sprintf "New container <%s> appear" name
                         | Some _ -> None)
 
         { state with
               nextRun = true
+              allContainers =
+                  containers
+                  |> List.map (fun (id, _, status) -> id, status)
+                  |> Map.ofList
               containers =
                   containers
                   |> List.choose
