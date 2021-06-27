@@ -3,6 +3,9 @@
     "tasks": [
         {
             "label": "test",
+            "presentation": {
+                "reveal": "silent"
+            },
             "options": {
                 "cwd": "test"
             },
@@ -19,6 +22,9 @@
         },
         {
             "label": "build",
+            "presentation": {
+                "reveal": "silent"
+            },
             "options": {
                 "cwd": "app"
             },

@@ -7,6 +7,18 @@ open Application
 module T = TestFramework
 
 [<Fact>]
+let ``not show notification for exited containers`` () =
+    T.run
+    <| fun env ->
+        env.setContainers [ ContainerId "1", "service1", Exited ]
+        env.run ()
+        test <@ [] = !env.messages @>
+
+        env.setContainers [ ContainerId "1", "service1", Exited ]
+        env.run ()
+        test <@ [] = !env.messages @>
+
+[<Fact>]
 let ``show notification when new container appear`` () =
     T.run
     <| fun env ->
