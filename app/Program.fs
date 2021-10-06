@@ -196,8 +196,27 @@ module Docker =
 
 module Telegram =
     open Telegram.Bot
+    open System.Threading
+    open Telegram.Bot.Extensions.Polling
 
     type t = private { client: TelegramBotClient }
+
+    let startReading { client = client } =
+        client.StartReceiving(
+            { new IUpdateHandler with
+                member _.get_AllowedUpdates() = [||]
+
+                member _.HandleError(_, err, _) =
+                    printfn "LOG :: %O" err
+                    Tasks.Task.CompletedTask
+
+                member _.HandleUpdate(bot, update, _) =
+                    async {
+                        failwith "???"
+                    }
+                    |> Async.StartAsTask
+                    |> fun t -> upcast t }
+        )
 
     let make token = { client = TelegramBotClient token }
 
