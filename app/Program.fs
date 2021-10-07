@@ -197,11 +197,15 @@ module Docker =
 module Telegram =
     open Telegram.Bot
     open System.Threading
+    open System.Threading.Channels
     open Telegram.Bot.Extensions.Polling
 
     type t = private { client: TelegramBotClient }
+    type UserId = private UserId of string
 
-    let startReading { client = client } =
+    let mkMessageReader { client = client } =
+        let channel = Channel.CreateBounded(16)
+
         client.StartReceiving(
             { new IUpdateHandler with
                 member _.get_AllowedUpdates() = [||]
@@ -210,13 +214,21 @@ module Telegram =
                     printfn "LOG :: %O" err
                     Tasks.Task.CompletedTask
 
-                member _.HandleUpdate(bot, update, _) =
-                    async {
-                        failwith "???"
-                    }
-                    |> Async.StartAsTask
-                    |> fun t -> upcast t }
+                member _.HandleUpdate(_, update, _) =
+                    channel
+                        .Writer
+                        .WriteAsync(
+                            {| user = string update.Message.From.Id |> UserId
+                               message = update.Message.Text |}
+                        )
+                        .AsTask() }
         )
+
+        async {
+            return!
+                channel.Reader.ReadAsync().AsTask()
+                |> Async.AwaitTask
+        }
 
     let make token = { client = TelegramBotClient token }
 
@@ -234,7 +246,6 @@ module Telegram =
 
         clearHistory' 0
 
-    type UserId = private UserId of string
     let userIdFrom = UserId
 
     let getNewMessage t =
@@ -288,7 +299,8 @@ let main argv =
                     do! Async.Sleep 15_000
               }
               TelegramBot.main
-                  (Telegram.getNewMessage telegram)
+                  (Telegram.mkMessageReader telegram
+                   |> Async.map (fun x -> x.user, x.message))
                   (fun userId msg -> sendMessages userId [ msg ])
                   Bash.run ]
             |> Async.Parallel
