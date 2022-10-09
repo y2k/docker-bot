@@ -13,30 +13,39 @@ module TelegramBot =
     let private makeCommands runBash =
         [ C.Command [ C.Name "free"
                       C.Description "Show free memory"
-                      C.Return(lazy (runBash "free" |> Async.map parseFreeResult)) ] ]
+                      C.Return(lazy (runBash ("free", null) |> Async.map parseFreeResult)) ]
+          C.Command [ C.Name "cat"
+                      C.Param (C.StringParam "path")
+                      C.OnCallback (fun path -> runBash ("cat", path)) ] ]
 
-    let main readMessage sendMessage runBash =
+    let main ownerUserId readMessage sendMessage runBash =
         async {
-            let eval msg = C.eval msg (makeCommands runBash)
+            let eval userId msg =
+                if ownerUserId = userId then
+                    C.eval msg (makeCommands runBash)
+                else
+                    Error "Not authorized access"
 
             while true do
                 let! (user, msg) = readMessage
-                let! response = eval msg |> Result.fold id async.Return
+                let! response = eval user msg |> Result.fold id async.Return
                 do! sendMessage user response
         }
 
 module Bash =
     open System.Diagnostics
 
-    let run (cmd: string) : string Async =
+    let run (cmd: string, arg: string) : string Async =
         async {
             let p =
-                new Process(StartInfo = new ProcessStartInfo(FileName = cmd, RedirectStandardOutput = true))
+                new Process(StartInfo = new ProcessStartInfo(FileName = cmd, Arguments = arg, RedirectStandardOutput = true))
 
             p.Start() |> ignore
             p.WaitForExit()
             return p.StandardOutput.ReadToEnd()
         }
+        |> Async.catch
+        |> Async.map (function Ok x -> x | Error e -> string e)
 
 type HealthStatus =
     | NoneHealth
@@ -154,11 +163,11 @@ module Service =
                       unhealthyMessages
                       newContainersMessages ]
 
-    let run getContainers sendMessages state =
+    let run getContainers sendMessages (state : _ ref) =
         async {
             let! containers = getContainers
-            let (state', messages) = getUpdateMessages !state containers
-            state := state'
+            let (state', messages) = getUpdateMessages state.Value containers
+            state.Value <- state'
             do! sendMessages messages
         }
 
@@ -193,6 +202,13 @@ module Docker =
                     .Result
                 |> mapContainers
         }
+        |> Async.catch
+        |> Async.map (
+            function
+            | Ok x -> x
+            | Error e ->
+                printfn "%O" e
+                [])
 
 module Telegram =
     open Telegram.Bot
@@ -264,9 +280,9 @@ module Telegram =
         let offset = ref 0
 
         async {
-            let! updates = tryRead !offset
+            let! updates = tryRead offset.Value
             let x = updates.[0]
-            offset := x.Id + 1
+            offset.Value <- x.Id + 1
             return string x.Message.From.Id |> UserId, x.Message.Text
         }
 
@@ -275,7 +291,8 @@ module Telegram =
         |> List.map
             (fun text ->
                 t.client.SendTextMessageAsync(!>user, text)
-                |> Async.AwaitTask)
+                |> Async.AwaitTask
+                |> Async.Catch)
         |> Async.Sequential
         |> Async.Ignore
 
@@ -283,7 +300,7 @@ module Telegram =
 let main argv =
     async {
         let telegram = Telegram.make argv.[0]
-        let userId = argv.[1]
+        let userId = argv.[1] |> Telegram.userIdFrom
         let sendMessages = Telegram.sendMessage telegram
 
         do! Telegram.clearHistory telegram
@@ -295,10 +312,11 @@ let main argv =
                 let state = ref State.Empty
 
                 while true do
-                    do! Service.run Docker.getContainers (sendMessages <| Telegram.userIdFrom userId) state
+                    do! Service.run Docker.getContainers (sendMessages userId) state
                     do! Async.Sleep 15_000
               }
               TelegramBot.main
+                  userId
                   (Telegram.mkMessageReader telegram
                    |> Async.map (fun x -> x.user, x.message))
                   (fun userId msg -> sendMessages userId [ msg ])

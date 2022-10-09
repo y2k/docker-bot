@@ -33,9 +33,10 @@ type TestFramework() =
     do
         let mainAsync =
             T.main
+                (Application.Telegram.userIdFrom "1")
                 (async {
                     let! msg = AsyncQueue.pop inCommands
-                    return (), msg
+                    return (Application.Telegram.userIdFrom "1"), msg
                  })
                 (fun _ msg -> AsyncQueue.push outCommands msg |> async.Return)
                 (fun _ -> async.Return !freeShellReponse)

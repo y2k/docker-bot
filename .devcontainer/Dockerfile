@@ -1,15 +1,9 @@
-FROM mcr.microsoft.com/vscode/devcontainers/dotnet:0-5.0
+ARG VARIANT=6.0-bullseye
+FROM mcr.microsoft.com/vscode/devcontainers/dotnet:0-${VARIANT}
 
-# [Option] Install Node.js
-ARG INSTALL_NODE="true"
+# [Choice] Node.js version: none, lts/*, 18, 16, 14
 ARG NODE_VERSION="lts/*"
-RUN if [ "${INSTALL_NODE}" = "true" ]; then su vscode -c "umask 0002 && . /usr/local/share/nvm/nvm.sh && nvm install ${NODE_VERSION} 2>&1"; fi
-
-# [Option] Install Azure CLI
-ARG INSTALL_AZURE_CLI="false"
-COPY library-scripts/azcli-debian.sh /tmp/library-scripts/
-RUN if [ "$INSTALL_AZURE_CLI" = "true" ]; then bash /tmp/library-scripts/azcli-debian.sh; fi \
-    && apt-get clean -y && rm -rf /var/lib/apt/lists/* /tmp/library-scripts
+RUN if [ "${NODE_VERSION}" != "none" ]; then su vscode -c "umask 0002 && . /usr/local/share/nvm/nvm.sh && nvm install ${NODE_VERSION} 2>&1"; fi
 
 # [Optional] Uncomment this section to install additional OS packages.
 # RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
