@@ -3,6 +3,7 @@ module Tests
 open Xunit
 open Swensen.Unquote
 open Application
+open Domain
 
 module T = TestFramework
 

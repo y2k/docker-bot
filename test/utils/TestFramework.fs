@@ -1,5 +1,6 @@
 module TestFramework
 
+open Domain
 open System
 open Application
 

@@ -1,6 +1,7 @@
 module TimeParseTests
 
 open System
+open Domain
 open Xunit
 open Swensen.Unquote
 open Application

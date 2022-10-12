@@ -9,3 +9,5 @@ obj/
 .DS_Store
 
 playground/
+
+.vscode/settings.json
