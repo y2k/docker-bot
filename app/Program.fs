@@ -2,7 +2,16 @@ module Application
 
 open System
 
+type Event = interface end
+
 module TelegramBot =
+    type WriteRunBash =
+        | WriteRunBash of bin : string * arg : string * f : (string -> string)
+        interface Event
+    type WriteMsg =
+        | WriteMsg of string
+        interface Event
+
     module C = CommandParser
 
     let private parseFreeResult =
@@ -10,26 +19,33 @@ module TelegramBot =
         | Regex "Mem: +(\\d+) +(\\d+)" [ total; used ] -> sprintf "%i MB / %i MB" (int used / 1024) (int total / 1024)
         | _ -> "ERROR: Can't get free memory"
 
-    let private makeCommands runBash =
+    let private makeCommands =
         [ C.Command [ C.Name "free"
                       C.Description "Show free memory"
-                      C.Return(lazy (runBash ("free", null) |> Async.map parseFreeResult)) ]
+                      C.Return (lazy (WriteRunBash ("free", null, parseFreeResult) :> Event)) ]
           C.Command [ C.Name "cat"
                       C.Param (C.StringParam "path")
-                      C.OnCallback (fun path -> runBash ("cat", path)) ] ]
+                      C.OnCallback (fun path -> WriteRunBash ("cat", path, id)) ] ]
+
+    let private eval ownerUserId userId msg : Event =
+        if ownerUserId = userId then
+            match C.eval msg makeCommands with
+            | Ok r -> r
+            | Error e -> WriteMsg e
+        else
+            WriteMsg "Not authorized access"
 
     let main ownerUserId readMessage sendMessage runBash =
         async {
-            let eval userId msg =
-                if ownerUserId = userId then
-                    C.eval msg (makeCommands runBash)
-                else
-                    Error "Not authorized access"
-
             while true do
                 let! (user, msg) = readMessage
-                let! response = eval user msg |> Result.fold id async.Return
-                do! sendMessage user response
+                let! response =
+                    match eval ownerUserId user msg with
+                    | :? WriteRunBash as WriteRunBash (c, p, f) -> runBash (c, p) |> Async.map f
+                    | :? WriteMsg as WriteMsg msg -> async.Return msg
+                    | _ -> async.Return null
+                if not (isNull response) then
+                    do! sendMessage user response
         }
 
 module Bash =
