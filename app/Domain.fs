@@ -2,14 +2,19 @@ namespace Domain
 
 open System
 
-type Event = interface end
+type Event =
+    interface
+    end
+
+type WriteMsg =
+    | WriteMsg of string
+
+    interface Event
 
 module TelegramBot =
     type WriteRunBash =
-        | WriteRunBash of bin : string * arg : string * f : (string -> string)
-        interface Event
-    type WriteMsg =
-        | WriteMsg of string
+        | WriteRunBash of bin: string * arg: string * f: (string -> string)
+
         interface Event
 
     module C = CommandParser
@@ -20,12 +25,14 @@ module TelegramBot =
         | _ -> "ERROR: Can't get free memory"
 
     let private makeCommands =
-        [ C.Command [ C.Name "free"
-                      C.Description "Show free memory"
-                      C.Return (lazy (WriteRunBash ("free", null, parseFreeResult) :> Event)) ]
-          C.Command [ C.Name "cat"
-                      C.Param (C.StringParam "path")
-                      C.OnCallback (fun path -> WriteRunBash ("cat", path, id)) ] ]
+        [ C.Command
+              [ C.Name "free"
+                C.Description "Show free memory"
+                C.Return(lazy (WriteRunBash("free", null, parseFreeResult) :> Event)) ]
+          C.Command
+              [ C.Name "cat"
+                C.Param(C.StringParam "path")
+                C.OnCallback(fun path -> WriteRunBash("cat", path, id)) ] ]
 
     let eval ownerUserId userId msg : Event =
         if ownerUserId = userId then
@@ -52,6 +59,9 @@ type State =
     { containers: Map<ContainerId, Status>
       allContainers: Map<ContainerId, Status>
       nextRun: bool }
+
+    interface Event
+
     static member Empty =
         { containers = Map.empty
           allContainers = Map.empty
@@ -81,9 +91,7 @@ module Service =
 
         match state with
         | "exited" -> Ok Exited
-        | "running" ->
-            parseUpTime status
-            |> Result.map (fun s -> Running(s, parseHealth status))
+        | "running" -> parseUpTime status |> Result.map (fun s -> Running(s, parseHealth status))
         | "created" -> Ok Created
         | s -> Error <| sprintf "Can't parse '%s'" s
 
@@ -111,12 +119,11 @@ module Service =
 
         let unhealthyMessages =
             containers
-            |> List.filter
-                (fun (id, _, s) ->
-                    match s, Map.tryFind id state.containers with
-                    | Running (_, Unhealthy), Some (Running (_, Healthy)) -> true
-                    | Running (_, Unhealthy), Some (Running (_, HealthStarting)) -> true
-                    | _ -> false)
+            |> List.filter (fun (id, _, s) ->
+                match s, Map.tryFind id state.containers with
+                | Running (_, Unhealthy), Some (Running (_, Healthy)) -> true
+                | Running (_, Unhealthy), Some (Running (_, HealthStarting)) -> true
+                | _ -> false)
             |> List.map (fun (_, name, _) -> sprintf "Service <%s> unhealthy" name)
 
         let newContainersMessages =
@@ -124,29 +131,23 @@ module Service =
                 []
             else
                 containers
-                |> List.choose
-                    (fun (id, name, _) ->
-                        match Map.tryFind id state.allContainers with
-                        | None -> Some <| sprintf "New container <%s> appear" name
-                        | Some _ -> None)
+                |> List.choose (fun (id, name, _) ->
+                    match Map.tryFind id state.allContainers with
+                    | None -> Some <| sprintf "New container <%s> appear" name
+                    | Some _ -> None)
 
-        { state with
-              nextRun = true
-              allContainers =
-                  containers
-                  |> List.map (fun (id, _, status) -> id, status)
-                  |> Map.ofList
-              containers =
-                  containers
-                  |> List.choose
-                      (fun (id, _, status) ->
-                          if isExited status then
-                              None
-                          else
-                              Some(id, status))
-                  |> Map.ofList },
+        let stateUpdate =
+            { state with
+                nextRun = true
+                allContainers = containers |> List.map (fun (id, _, status) -> id, status) |> Map.ofList
+                containers =
+                    containers
+                    |> List.choose (fun (id, _, status) -> if isExited status then None else Some(id, status))
+                    |> Map.ofList }
+            :> Event
 
-        List.concat [ restartMessages
-                      messages
-                      unhealthyMessages
-                      newContainersMessages ]
+        let msgCmds =
+            List.concat [ restartMessages; messages; unhealthyMessages; newContainersMessages ]
+            |> List.map (fun x -> WriteMsg x :> Event)
+
+        stateUpdate :: msgCmds

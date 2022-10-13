@@ -9,11 +9,13 @@ module TelegramBot =
         async {
             while true do
                 let! (user, msg) = readMessage
+
                 let! response =
                     match T.eval ownerUserId user msg with
                     | :? T.WriteRunBash as T.WriteRunBash (c, p, f) -> runBash (c, p) |> Async.map f
-                    | :? T.WriteMsg as T.WriteMsg msg -> async.Return msg
+                    | :? WriteMsg as WriteMsg msg -> async.Return msg
                     | _ -> async.Return null
+
                 if not (isNull response) then
                     do! sendMessage user response
         }
@@ -24,21 +26,36 @@ module Bash =
     let run (cmd: string, arg: string) : string Async =
         async {
             let p =
-                new Process(StartInfo = new ProcessStartInfo(FileName = cmd, Arguments = arg, RedirectStandardOutput = true))
+                new Process(
+                    StartInfo = new ProcessStartInfo(FileName = cmd, Arguments = arg, RedirectStandardOutput = true)
+                )
 
             p.Start() |> ignore
             p.WaitForExit()
             return p.StandardOutput.ReadToEnd()
         }
         |> Async.catch
-        |> Async.map (function Ok x -> x | Error e -> string e)
+        |> Async.map (function
+            | Ok x -> x
+            | Error e -> string e)
 
 module Service =
-    let run getContainers sendMessages (state : _ ref) =
+    let run getContainers sendMessages (state: _ ref) =
         async {
             let! containers = getContainers
-            let (state', messages) = Service.getUpdateMessages state.Value containers
-            state.Value <- state'
+            let effects = Service.getUpdateMessages state.Value containers
+
+            for e in effects do
+                match e with
+                | :? State as state' -> state.Value <- state'
+                | _ -> ()
+
+            let messages =
+                effects
+                |> List.choose (function
+                    | :? WriteMsg as WriteMsg msg -> Some msg
+                    | _ -> None)
+
             do! sendMessages messages
         }
 
@@ -52,30 +69,25 @@ module Docker =
                 let toNames xs = Seq.reduce (sprintf "%s - %s") xs
 
                 containers
-                |> Seq.map
-                    (fun x ->
-                        let status =
-                            Service.parseStatus x.State x.Status
-                            |> Result.unwrap
+                |> Seq.map (fun x ->
+                    let status = Service.parseStatus x.State x.Status |> Result.unwrap
 
-                        ContainerId x.ID, toNames x.Names, status)
+                    ContainerId x.ID, toNames x.Names, status)
                 |> Seq.toList
 
-            use client =
-                (new DockerClientConfiguration()).CreateClient()
+            use client = (new DockerClientConfiguration()).CreateClient()
 
             return
                 client
                     .Containers
                     .ListContainersAsync(
-                        ContainersListParameters(Limit = !>100L)
+                        ContainersListParameters(Limit = !> 100L)
                     )
                     .Result
                 |> mapContainers
         }
         |> Async.catch
-        |> Async.map (
-            function
+        |> Async.map (function
             | Ok x -> x
             | Error e ->
                 printfn "%O" e
@@ -111,11 +123,7 @@ module Telegram =
                         .AsTask() }
         )
 
-        async {
-            return!
-                channel.Reader.ReadAsync().AsTask()
-                |> Async.AwaitTask
-        }
+        async { return! channel.Reader.ReadAsync().AsTask() |> Async.AwaitTask }
 
     let make token = { client = TelegramBotClient token }
 
@@ -159,11 +167,7 @@ module Telegram =
 
     let sendMessage t (UserId user) messages =
         messages
-        |> List.map
-            (fun text ->
-                t.client.SendTextMessageAsync(!>user, text)
-                |> Async.AwaitTask
-                |> Async.Catch)
+        |> List.map (fun text -> t.client.SendTextMessageAsync(!>user, text) |> Async.AwaitTask |> Async.Catch)
         |> Async.Sequential
         |> Async.Ignore
 
@@ -180,16 +184,15 @@ let main argv =
 
         do!
             [ async {
-                let state = ref State.Empty
+                  let state = ref State.Empty
 
-                while true do
-                    do! Service.run Docker.getContainers (sendMessages userId) state
-                    do! Async.Sleep 15_000
+                  while true do
+                      do! Service.run Docker.getContainers (sendMessages userId) state
+                      do! Async.Sleep 15_000
               }
               TelegramBot.main
                   userId
-                  (Telegram.mkMessageReader telegram
-                   |> Async.map (fun x -> x.user, x.message))
+                  (Telegram.mkMessageReader telegram |> Async.map (fun x -> x.user, x.message))
                   (fun userId msg -> sendMessages userId [ msg ])
                   Bash.run ]
             |> Async.Parallel
