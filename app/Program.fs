@@ -2,24 +2,6 @@ module Application
 
 open Domain
 
-module TelegramBot =
-    module T = TelegramBot
-
-    let main ownerUserId readMessage sendMessage runBash =
-        async {
-            while true do
-                let! (user, msg) = readMessage
-
-                let! response =
-                    match T.eval ownerUserId user msg with
-                    | :? T.WriteRunBash as T.WriteRunBash (c, p, f) -> runBash (c, p) |> Async.map f
-                    | :? WriteMsg as WriteMsg msg -> async.Return msg
-                    | _ -> async.Return null
-
-                if not (isNull response) then
-                    do! sendMessage user response
-        }
-
 module Bash =
     open System.Diagnostics
 
@@ -38,26 +20,6 @@ module Bash =
         |> Async.map (function
             | Ok x -> x
             | Error e -> string e)
-
-module Service =
-    let run getContainers sendMessages (state: _ ref) =
-        async {
-            let! containers = getContainers
-            let effects = Service.getUpdateMessages state.Value containers
-
-            for e in effects do
-                match e with
-                | :? State as state' -> state.Value <- state'
-                | _ -> ()
-
-            let messages =
-                effects
-                |> List.choose (function
-                    | :? WriteMsg as WriteMsg msg -> Some msg
-                    | _ -> None)
-
-            do! sendMessages messages
-        }
 
 module Docker =
     open Docker.DotNet
@@ -100,7 +62,6 @@ module Telegram =
     open Telegram.Bot.Extensions.Polling
 
     type t = private { client: TelegramBotClient }
-    type UserId = private UserId of string
 
     let mkMessageReader { client = client } =
         let channel = Channel.CreateBounded(16)
@@ -171,30 +132,73 @@ module Telegram =
         |> Async.Sequential
         |> Async.Ignore
 
+let private handleCommands (state: _ ref) sendMessage (dispatch: Message -> unit Async) (commands: Command seq) =
+    async {
+        for cmd in commands do
+            match cmd with
+            | :? CallDelayCommand as CallDelayCommand (delay, cb) ->
+                do! Async.Sleep delay
+                do! dispatch cb
+            | :? State as state' -> state.Value <- state'
+            | :? WriteMsg as WriteMsg (user, msg) -> do! sendMessage user msg
+            | :? TelegramBot.WriteRunBash as TelegramBot.WriteRunBash (user, c, p, f) ->
+                let! response = Bash.run (c, p) |> Async.map f
+                do! sendMessage user response
+            | _ -> ()
+    }
+
+module Framework =
+    let lazyHandler (msg: Message) (f: 'msg -> Command list Async) : Command list Async =
+        match msg with
+        | :? 'msg as m -> f m
+        | _ -> async.Return []
+
+    let lazyHandler_ (msg: Message) (f: 'msg -> Command list) : Command list Async =
+        match msg with
+        | :? 'msg as m -> async.Return(f m)
+        | _ -> async.Return []
+
+    let mkCommands (xs: Command list Async list) : Command list Async =
+        async {
+            let! a = Async.Parallel xs
+            return List.concat a
+        }
+
 [<EntryPoint>]
 let main argv =
     async {
         let telegram = Telegram.make argv.[0]
-        let userId = argv.[1] |> Telegram.userIdFrom
-        let sendMessages = Telegram.sendMessage telegram
+        let ownerUserId = argv.[1] |> Telegram.userIdFrom
+        let sendMessage = fun u m -> Telegram.sendMessage telegram u [ m ]
 
         do! Telegram.clearHistory telegram
 
+        let state = ref State.Empty
+        let handleCommands = handleCommands state sendMessage
+
         printfn "Application started ..."
 
-        do!
-            [ async {
-                  let state = ref State.Empty
+        let rec handleMessage (msg: Message) =
+            async {
+                let! commands =
+                    Framework.mkCommands
+                        [ Framework.lazyHandler msg (fun msg ->
+                              async {
+                                  let! containers = Docker.getContainers
+                                  return Service.getUpdateMessages ownerUserId state.Value containers msg
+                              })
+                          Framework.lazyHandler_ msg (TelegramBot.handleMessage ownerUserId) ]
 
+                do! handleCommands handleMessage commands
+            }
+
+        do!
+            [ handleMessage Service.CallbackMessage
+              async {
                   while true do
-                      do! Service.run Docker.getContainers (sendMessages userId) state
-                      do! Async.Sleep 15_000
-              }
-              TelegramBot.main
-                  userId
-                  (Telegram.mkMessageReader telegram |> Async.map (fun x -> x.user, x.message))
-                  (fun userId msg -> sendMessages userId [ msg ])
-                  Bash.run ]
+                      let! update = Telegram.mkMessageReader telegram
+                      do! handleMessage (TelegramMessageReceived(update.user, update.message))
+              } ]
             |> Async.Parallel
             |> Async.Ignore
     }

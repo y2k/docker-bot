@@ -2,20 +2,36 @@ namespace Domain
 
 open System
 
-type Event =
+type Command =
     interface
     end
 
-type WriteMsg =
-    | WriteMsg of string
+type Message =
+    interface
+    end
 
-    interface Event
+type UserId = UserId of string
+
+type TelegramMessageReceived =
+    | TelegramMessageReceived of user: UserId * message: string
+
+    interface Message
+
+type WriteMsg =
+    | WriteMsg of UserId * string
+
+    interface Command
+
+type CallDelayCommand =
+    | CallDelayCommand of TimeSpan * Message
+
+    interface Command
 
 module TelegramBot =
     type WriteRunBash =
-        | WriteRunBash of bin: string * arg: string * f: (string -> string)
+        | WriteRunBash of user: UserId * bin: string * arg: string * f: (string -> string)
 
-        interface Event
+        interface Command
 
     module C = CommandParser
 
@@ -24,23 +40,23 @@ module TelegramBot =
         | Regex "Mem: +(\\d+) +(\\d+)" [ total; used ] -> sprintf "%i MB / %i MB" (int used / 1024) (int total / 1024)
         | _ -> "ERROR: Can't get free memory"
 
-    let private makeCommands =
+    let private makeCommands userId =
         [ C.Command
               [ C.Name "free"
                 C.Description "Show free memory"
-                C.Return(lazy (WriteRunBash("free", null, parseFreeResult) :> Event)) ]
+                C.Return(lazy (WriteRunBash(userId, "free", null, parseFreeResult) :> Command)) ]
           C.Command
               [ C.Name "cat"
                 C.Param(C.StringParam "path")
-                C.OnCallback(fun path -> WriteRunBash("cat", path, id)) ] ]
+                C.OnCallback(fun path -> WriteRunBash(userId, "cat", path, id)) ] ]
 
-    let eval ownerUserId userId msg : Event =
+    let handleMessage ownerUserId (TelegramMessageReceived (userId, msg)) : Command list =
         if ownerUserId = userId then
-            match C.eval msg makeCommands with
-            | Ok r -> r
-            | Error e -> WriteMsg e
+            match C.eval msg (makeCommands userId) with
+            | Ok r -> [ r ]
+            | Error e -> [ WriteMsg(userId, e) ]
         else
-            WriteMsg "Not authorized access"
+            [ WriteMsg(userId, "Not authorized access") ]
 
 type HealthStatus =
     | NoneHealth
@@ -60,7 +76,7 @@ type State =
       allContainers: Map<ContainerId, Status>
       nextRun: bool }
 
-    interface Event
+    interface Command
 
     static member Empty =
         { containers = Map.empty
@@ -95,7 +111,7 @@ module Service =
         | "created" -> Ok Created
         | s -> Error <| sprintf "Can't parse '%s'" s
 
-    let getUpdateMessages state containers =
+    let private getUpdateMessages' ownerUserId state containers : Command list =
         let isExited =
             function
             | Exited -> true
@@ -144,10 +160,18 @@ module Service =
                     containers
                     |> List.choose (fun (id, _, status) -> if isExited status then None else Some(id, status))
                     |> Map.ofList }
-            :> Event
 
         let msgCmds =
             List.concat [ restartMessages; messages; unhealthyMessages; newContainersMessages ]
-            |> List.map (fun x -> WriteMsg x :> Event)
+            |> List.map (fun x -> WriteMsg(ownerUserId, x) :> Command)
 
         stateUpdate :: msgCmds
+
+    type CallbackMessage =
+        | CallbackMessage
+
+        interface Message
+
+    let getUpdateMessages ownerUserId state containers (_: CallbackMessage) : Command list =
+        [ CallDelayCommand(TimeSpan.FromSeconds 15, CallbackMessage)
+          yield! getUpdateMessages' ownerUserId state containers ]

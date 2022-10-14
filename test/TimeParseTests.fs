@@ -4,7 +4,6 @@ open System
 open Domain
 open Xunit
 open Swensen.Unquote
-open Application
 
 [<Theory>]
 [<InlineData("Up About an hour", "01:00:00", "")>]

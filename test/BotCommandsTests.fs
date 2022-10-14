@@ -1,5 +1,6 @@
 module BotCommandsTests
 
+open Domain
 open Xunit
 open Swensen.Unquote
 
@@ -19,45 +20,55 @@ module AsyncQueue =
         t.channel.Writer.WriteAsync(msg) |> ignore
 
     let pop t =
-        t.channel.Reader.ReadAsync().AsTask()
-        |> Async.AwaitTask
-
-module T = Application.TelegramBot
+        t.channel.Reader.ReadAsync().AsTask() |> Async.AwaitTask
 
 type TestFramework() =
-    let inCommands : string AsyncQueue.t = AsyncQueue.make ()
-    let outCommands : string AsyncQueue.t = AsyncQueue.make ()
+    let inputTelegramMessages: string AsyncQueue.t = AsyncQueue.make ()
+    let outputTelegramMessages: string AsyncQueue.t = AsyncQueue.make ()
 
-    let freeShellReponse = ref ""
+    let bashLastResponse = ref ""
+
+    let handleCommands (commands: Command list) =
+        for cmd in commands do
+            match cmd with
+            | :? WriteMsg as WriteMsg (_, msg) -> AsyncQueue.push outputTelegramMessages msg
+            | :? TelegramBot.WriteRunBash as TelegramBot.WriteRunBash (_, _, _, f) ->
+                AsyncQueue.push outputTelegramMessages (f bashLastResponse.Value)
+            | _ -> ()
+
+        async.Zero()
+
+    let getTelegramMessage =
+        async {
+            let! msg = AsyncQueue.pop inputTelegramMessages
+            return TelegramMessageReceived((Application.Telegram.userIdFrom "1"), msg)
+        }
 
     do
-        let mainAsync =
-            T.main
-                (Application.Telegram.userIdFrom "1")
-                (async {
-                    let! msg = AsyncQueue.pop inCommands
-                    return (Application.Telegram.userIdFrom "1"), msg
-                 })
-                (fun _ msg -> AsyncQueue.push outCommands msg |> async.Return)
-                (fun _ -> async.Return !freeShellReponse)
+        async {
+            let! msg = getTelegramMessage
+            let commands = TelegramBot.handleMessage (UserId "1") msg
+            do! handleCommands commands
+        }
+        |> Async.Start
 
-        mainAsync |> Async.Start
+    member _.setBashLastResponse response = bashLastResponse.Value <- response
 
-    member _.setFreeShellReponse response = freeShellReponse := response
-    member _.send msg = AsyncQueue.push inCommands msg
+    member _.send msg =
+        AsyncQueue.push inputTelegramMessages msg
 
     member _.assetMessage asset : unit =
-        let lastError : exn option ref = ref None
+        let lastError: exn option ref = ref None
 
         let rec test count =
             async {
-                match AsyncQueue.tryRead outCommands with
+                match AsyncQueue.tryRead outputTelegramMessages with
                 | Some msg ->
                     try
                         asset msg
                     with e ->
                         if count > 0 then
-                            lastError := Some e
+                            lastError.Value <- Some e
                             do! Async.Sleep 100
                             do! test (count - 1)
                         else
@@ -78,7 +89,7 @@ type TestFramework() =
 let ``free command`` () =
     let env = TestFramework()
 
-    env.setFreeShellReponse
+    env.setBashLastResponse
         """
               total        used        free      shared  buff/cache   available
 Mem:        2037088      775168      185660        1016     1076260     1051064

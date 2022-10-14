@@ -14,11 +14,23 @@ let run (callback: Env -> unit) : unit =
     let messages = ref []
     let containers = ref []
 
-    { setContainers = (fun cs -> containers := cs)
+    let handleCommands (commands: Command list) =
+        for cmd in commands do
+            match cmd with
+            | :? State as state' -> state.Value <- state'
+            | :? WriteMsg as WriteMsg (_, msg) -> messages.Value <- messages.Value @ [ msg ]
+            | _ -> ()
+
+        async.Zero()
+
+    { setContainers = (fun cs -> containers.Value <- cs)
       run =
-          (fun _ ->
-              Service.run (async { return !containers }) (fun ms -> async { messages := ms }) state
-              |> Async.RunSynchronously)
+        (fun _ ->
+            messages.Value <- []
+
+            Service.getUpdateMessages (UserId "0") state.Value containers.Value Service.CallbackMessage
+            |> handleCommands
+            |> Async.RunSynchronously)
       messages = messages }
     |> callback
 
