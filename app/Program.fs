@@ -147,21 +147,33 @@ let private handleCommands (state: _ ref) sendMessage (dispatch: Message -> unit
             | _ -> ()
     }
 
-module Framework =
-    let lazyHandler (msg: Message) (f: 'msg -> Command list Async) : Command list Async =
-        match msg with
-        | :? 'msg as m -> f m
-        | _ -> async.Return []
-
-    let lazyHandler_ (msg: Message) (f: 'msg -> Command list) : Command list Async =
-        match msg with
-        | :? 'msg as m -> async.Return(f m)
-        | _ -> async.Return []
-
-    let mkCommands (xs: Command list Async list) : Command list Async =
+module Dsl =
+    let apply arg f =
         async {
-            let! a = Async.Parallel xs
-            return List.concat a
+            let! foo2 = f
+            let! a2 = arg
+            return foo2 a2
+        }
+
+    let wrapMsg (f: ('msg -> Command list) Async) (m: Message) =
+        async {
+            match m with
+            | :? 'msg as msg ->
+                let! f' = f
+                return f' msg
+            | _ -> return []
+        }
+
+    let build fs (msg: Message) =
+        async {
+            let! r = fs |> List.map (fun f -> f msg) |> Async.Parallel
+            return List.concat r
+        }
+
+    let rec mkDispatchMessage handleMessages handleCommands (msg: Message) =
+        async {
+            let! commands = handleMessages msg
+            do! handleCommands (mkDispatchMessage handleMessages handleCommands) commands
         }
 
 [<EntryPoint>]
@@ -178,26 +190,22 @@ let main argv =
 
         printfn "Application started ..."
 
-        let rec handleMessage (msg: Message) =
-            async {
-                let! commands =
-                    Framework.mkCommands
-                        [ Framework.lazyHandler msg (fun msg ->
-                              async {
-                                  let! containers = Docker.getContainers
-                                  return Service.getUpdateMessages ownerUserId state.Value containers msg
-                              })
-                          Framework.lazyHandler_ msg (TelegramBot.handleMessage ownerUserId) ]
+        let handleMessages =
+            Dsl.build
+                [ async.Return(Service.getUpdateMessages ownerUserId state.Value)
+                  |> Dsl.apply Docker.getContainers
+                  |> Dsl.wrapMsg
+                  async.Return(TelegramBot.handleMessage ownerUserId) |> Dsl.wrapMsg ]
 
-                do! handleCommands handleMessage commands
-            }
+        let dispatch msg =
+            Dsl.mkDispatchMessage handleMessages handleCommands msg
 
         do!
-            [ handleMessage Service.CallbackMessage
+            [ dispatch Service.CallbackMessage
               async {
                   while true do
                       let! update = Telegram.mkMessageReader telegram
-                      do! handleMessage (TelegramMessageReceived(update.user, update.message))
+                      do! dispatch (TelegramMessageReceived(update.user, update.message))
               } ]
             |> Async.Parallel
             |> Async.Ignore
