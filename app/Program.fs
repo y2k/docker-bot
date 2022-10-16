@@ -176,6 +176,13 @@ module Dsl =
             do! handleCommands (mkDispatchMessage handleMessages handleCommands) commands
         }
 
+let handleMessages ownerUserId (state: _ ref) =
+    Dsl.build
+        [ async.Return(Service.getUpdateMessages ownerUserId state.Value)
+          |> Dsl.apply Docker.getContainers
+          |> Dsl.wrapMsg
+          async.Return(TelegramBot.handleMessage ownerUserId) |> Dsl.wrapMsg ]
+
 [<EntryPoint>]
 let main argv =
     async {
@@ -190,15 +197,8 @@ let main argv =
 
         printfn "Application started ..."
 
-        let handleMessages =
-            Dsl.build
-                [ async.Return(Service.getUpdateMessages ownerUserId state.Value)
-                  |> Dsl.apply Docker.getContainers
-                  |> Dsl.wrapMsg
-                  async.Return(TelegramBot.handleMessage ownerUserId) |> Dsl.wrapMsg ]
-
         let dispatch msg =
-            Dsl.mkDispatchMessage handleMessages handleCommands msg
+            Dsl.mkDispatchMessage (handleMessages ownerUserId state) handleCommands msg
 
         do!
             [ dispatch Service.CallbackMessage
