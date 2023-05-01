@@ -24,6 +24,10 @@ module Bash =
 module Docker =
     open Docker.DotNet
     open Docker.DotNet.Models
+    open System
+    open System.Runtime.InteropServices
+
+    let private isMacOS = RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
 
     let getContainers =
         async {
@@ -37,7 +41,14 @@ module Docker =
                     ContainerId x.ID, toNames x.Names, status)
                 |> Seq.toList
 
-            use client = (new DockerClientConfiguration()).CreateClient()
+            let client =
+                if isMacOS then
+                    let homeDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+
+                    (new DockerClientConfiguration(Uri $"unix://{homeDir}/.docker/run/docker.sock"))
+                        .CreateClient()
+                else
+                    (new DockerClientConfiguration()).CreateClient()
 
             return
                 client
@@ -57,74 +68,12 @@ module Docker =
 
 module Telegram =
     open Telegram.Bot
-    open System.Threading
-    open System.Threading.Channels
-    open Telegram.Bot.Extensions.Polling
 
     type t = private { client: TelegramBotClient }
 
-    let mkMessageReader { client = client } =
-        let channel = Channel.CreateBounded(16)
-
-        client.StartReceiving(
-            { new IUpdateHandler with
-                member _.get_AllowedUpdates() = [||]
-
-                member _.HandleError(_, err, _) =
-                    printfn "LOG :: %O" err
-                    Tasks.Task.CompletedTask
-
-                member _.HandleUpdate(_, update, _) =
-                    channel
-                        .Writer
-                        .WriteAsync(
-                            {| user = string update.Message.From.Id |> UserId
-                               message = update.Message.Text |}
-                        )
-                        .AsTask() }
-        )
-
-        async { return! channel.Reader.ReadAsync().AsTask() |> Async.AwaitTask }
-
-    let make token = { client = TelegramBotClient token }
-
-    let clearHistory t =
-        let rec clearHistory' offset =
-            async {
-                let! updates =
-                    t.client.GetUpdatesAsync(offset = offset, limit = 100, timeout = 0)
-                    |> Async.AwaitTask
-
-                if not <| Array.isEmpty updates then
-                    let lastMsg = updates |> Array.last
-                    do! clearHistory' (lastMsg.Id + 1)
-            }
-
-        clearHistory' 0
+    let make (token: string) = { client = TelegramBotClient token }
 
     let userIdFrom = UserId
-
-    let getNewMessage t =
-        let rec tryRead offset =
-            async {
-                let! updates =
-                    t.client.GetUpdatesAsync(offset = offset, limit = 1, timeout = 300)
-                    |> Async.AwaitTask
-
-                if Array.isEmpty updates then
-                    return! tryRead offset
-                else
-                    return updates
-            }
-
-        let offset = ref 0
-
-        async {
-            let! updates = tryRead offset.Value
-            let x = updates.[0]
-            offset.Value <- x.Id + 1
-            return string x.Message.From.Id |> UserId, x.Message.Text
-        }
 
     let sendMessage t (UserId user) messages =
         messages
@@ -132,13 +81,16 @@ module Telegram =
         |> Async.Sequential
         |> Async.Ignore
 
-let private handleCommands (state: _ ref) sendMessage (dispatch: Message -> unit Async) (commands: Command seq) =
+let private handleCommands (state: State ref) sendMessage (dispatch: Message -> unit Async) (commands: Command list) =
     async {
         for cmd in commands do
             match cmd with
             | :? CallDelayCommand as CallDelayCommand (delay, cb) ->
-                do! Async.Sleep delay
-                do! dispatch cb
+                async {
+                    do! Async.Sleep delay
+                    do! dispatch cb
+                }
+                |> Async.Start
             | :? State as state' -> state.Value <- state'
             | :? WriteMsg as WriteMsg (user, msg) -> do! sendMessage user msg
             | :? TelegramBot.WriteRunBash as TelegramBot.WriteRunBash (user, c, p, f) ->
@@ -178,7 +130,8 @@ module Dsl =
 
 let handleMessages ownerUserId (state: _ ref) =
     Dsl.build
-        [ async.Return(Service.getUpdateMessages ownerUserId state.Value)
+        [ async.Return(Service.handleMessage ownerUserId)
+          |> Dsl.apply (async { return state.Value })
           |> Dsl.apply Docker.getContainers
           |> Dsl.wrapMsg
           async.Return(TelegramBot.handleMessage ownerUserId) |> Dsl.wrapMsg ]
@@ -186,11 +139,10 @@ let handleMessages ownerUserId (state: _ ref) =
 [<EntryPoint>]
 let main argv =
     async {
-        let telegram = Telegram.make argv.[0]
-        let ownerUserId = argv.[1] |> Telegram.userIdFrom
+        let token = argv[0]
+        let telegram = Telegram.make token
+        let ownerUserId = argv[1] |> Telegram.userIdFrom
         let sendMessage = fun u m -> Telegram.sendMessage telegram u [ m ]
-
-        do! Telegram.clearHistory telegram
 
         let state = ref State.Empty
         let handleCommands = handleCommands state sendMessage
@@ -202,11 +154,7 @@ let main argv =
 
         do!
             [ dispatch Service.CallbackMessage
-              async {
-                  while true do
-                      let! update = Telegram.mkMessageReader telegram
-                      do! dispatch (TelegramMessageReceived(update.user, update.message))
-              } ]
+              TelegramProducer.produce token argv[2] dispatch ]
             |> Async.Parallel
             |> Async.Ignore
     }

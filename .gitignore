@@ -3,6 +3,7 @@ obj/
 .ionide/
 *.fsx
 *.ipynb
+.env
 
 .fake
 

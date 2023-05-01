@@ -71,7 +71,7 @@ let run (callback: Env -> unit) : unit =
         (fun _ ->
             messages.Value <- []
 
-            Service.getUpdateMessages (UserId "0") state.Value containers.Value Service.CallbackMessage
+            Service.handleMessage (UserId "0") state.Value containers.Value Service.CallbackMessage
             |> handleCommands
             |> Async.RunSynchronously)
       messages = messages

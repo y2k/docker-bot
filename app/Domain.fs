@@ -111,7 +111,7 @@ module Service =
         | "created" -> Ok Created
         | s -> Error <| sprintf "Can't parse '%s'" s
 
-    let private getUpdateMessages' ownerUserId state containers : Command list =
+    let private handleMessage_ ownerUserId state containers : Command list =
         let isExited =
             function
             | Exited -> true
@@ -172,6 +172,6 @@ module Service =
 
         interface Message
 
-    let getUpdateMessages ownerUserId state containers (_: CallbackMessage) : Command list =
+    let handleMessage ownerUserId state containers (_: CallbackMessage) : Command list =
         [ CallDelayCommand(TimeSpan.FromSeconds 15, CallbackMessage)
-          yield! getUpdateMessages' ownerUserId state containers ]
+          yield! handleMessage_ ownerUserId state containers ]

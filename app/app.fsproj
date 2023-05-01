@@ -8,13 +8,14 @@
 
   <ItemGroup>
     <Compile Include="Domain.fs" />
+    <Compile Include="producer/TelegramProducer.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Docker.DotNet" Version="3.125.4" />
-    <PackageReference Include="Telegram.Bot" Version="16.0.2" />
-    <PackageReference Include="Telegram.Bot.Extensions.Polling" Version="0.2.0" />
+    <PackageReference Include="Docker.DotNet" Version="3.125.14" />
+    <PackageReference Include="Suave" Version="2.6.2" />
+    <PackageReference Include="Telegram.Bot" Version="18.0.0" />
     <PackageReference Include="y2k.Prelude" Version="0.2.12" />
     <PackageReference Include="y2k.command-parser" Version="0.2.0" />
   </ItemGroup>
